@@ -3444,6 +3444,115 @@ def _serve_manifest(handler) -> bool:
     return j(handler, {"error": "not found"}, status=404)
 
 
+def _serve_image(handler, source_dir, filename):
+    """Serve a single image file from source_dir with path-traversal protection."""
+    import os
+    import mimetypes
+    safe_filename = os.path.basename(filename)
+    if safe_filename != filename:
+        return j(handler, {"error": "Invalid filename"}, status=400)
+    target_file = source_dir / safe_filename
+    if not target_file.exists() or not target_file.is_file():
+        return j(handler, {"error": "Image not found"}, status=404)
+    mime_type, _ = mimetypes.guess_type(str(target_file))
+    if mime_type is None:
+        mime_type = "application/octet-stream"
+    disposition = "inline" if mime_type.startswith("image/") else "attachment"
+    try:
+        with open(target_file, "rb") as f:
+            data = f.read()
+        handler.send_response(200)
+        handler.send_header("Content-Type", mime_type)
+        handler.send_header("Content-Disposition", f'{disposition}; filename="{safe_filename}"')
+        handler.send_header("Content-Length", str(len(data)))
+        handler.send_header("Cache-Control", "private, max-age=3600")
+        handler.end_headers()
+        handler.wfile.write(data)
+        return True
+    except Exception as e:
+        return j(handler, {"error": f"Failed to serve image: {str(e)}"}, status=500)
+
+
+def _gallery_source_dir():
+    """Return the best available gallery directory, or None."""
+    from pathlib import Path
+    gallery_dir = Path("/home/user/.hermes/profiles/kira/Starlight_Empire/outputs")
+    comfyui_dir = Path("/mnt/c/Users/User/Documents/ComfyUI_windows_portable/ComfyUI/output")
+    if gallery_dir.exists() and any(gallery_dir.iterdir()):
+        return gallery_dir
+    if comfyui_dir.exists() and any(comfyui_dir.iterdir()):
+        return comfyui_dir
+    return None
+
+
+def _handle_gallery(handler, parsed):
+    """Serve gallery images from the Starlight Empire outputs directory."""
+    from api.auth import is_auth_enabled, parse_cookie, verify_session
+    if is_auth_enabled():
+        cv = parse_cookie(handler)
+        if not (cv and verify_session(cv)):
+            handler.send_response(401)
+            handler.send_header("Content-Type", "application/json")
+            handler.end_headers()
+            handler.wfile.write(b'{"error":"Authentication required"}')
+            return
+
+    from urllib.parse import parse_qs
+    qs = parse_qs(parsed.query)
+    source_dir = _gallery_source_dir()
+    if source_dir is None:
+        return j(handler, {"error": "Gallery directory not found"}, status=404)
+
+    filename = qs.get("filename", [""])[0]
+    if not filename:
+        images = []
+        for ext in ["*.png", "*.jpg", "*.jpeg", "*.webp"]:
+            for img_file in source_dir.glob(ext):
+                stat = img_file.stat()
+                images.append({
+                    "filename": img_file.name,
+                    "size": stat.st_size,
+                    "modified": stat.st_mtime,
+                    "url": f"/api/gallery?filename={img_file.name}"
+                })
+        images.sort(key=lambda x: x["modified"], reverse=True)
+        return j(handler, {
+            "images": images,
+            "count": len(images),
+            "source": str(source_dir)
+        })
+
+    return _serve_image(handler, source_dir, filename)
+
+
+def _handle_kira_gallery_images(handler, parsed):
+    """Serve gallery images list for the Kira gallery page."""
+    from api.auth import is_auth_enabled, parse_cookie, verify_session
+    if is_auth_enabled():
+        cv = parse_cookie(handler)
+        if not (cv and verify_session(cv)):
+            handler.send_response(401)
+            handler.send_header("Content-Type", "application/json")
+            handler.end_headers()
+            handler.wfile.write(b'{"error":"Authentication required"}')
+            return
+
+    from pathlib import Path
+    source_dir = _gallery_source_dir()
+    if source_dir is None:
+        return j(handler, {"error": "Gallery directory not found"}, status=404)
+
+    image_urls = []
+    for ext in ["*.png", "*.jpg", "*.jpeg", "*.webp"]:
+        for img_file in source_dir.glob(ext):
+            image_urls.append(f"/api/gallery?filename={img_file.name}")
+
+    return j(handler, {
+        "images": image_urls,
+        "count": len(image_urls)
+    })
+
+
 def handle_get(handler, parsed) -> bool:
     """Handle all GET routes. Returns True if handled, False for 404."""
 
@@ -3667,6 +3776,12 @@ def handle_get(handler, parsed) -> bool:
         except Exception:
             pass
         return j(handler, settings)
+
+    # ── Gallery (GET) ──
+    if parsed.path == "/api/gallery":
+        return _handle_gallery(handler, parsed)
+    if parsed.path == "/api/kira/gallery/images":
+        return _handle_kira_gallery_images(handler, parsed)
 
     if parsed.path == "/api/reasoning":
         # Current reasoning config (shared source of truth with the CLI —
