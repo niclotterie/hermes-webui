@@ -1322,6 +1322,11 @@
   .attach-media-icon{display:inline-flex;align-items:center;color:var(--accent-text);}
   .attach-chip-name{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
   .attach-thumb{width:56px;height:56px;object-fit:cover;border-radius:4px;display:block;cursor:zoom-in;transition:filter .12s ease, transform .12s ease;}
+  /* Gallery panel */
+  .gallery-grid{display:flex;flex-wrap:wrap;gap:8px;padding:8px;justify-content:center;}
+  .gallery-grid-item{position:relative;width:calc(33.333% - 6px);aspect-ratio:1;overflow:hidden;border-radius:8px;box-shadow:0 2px 8px rgba(0,0,0,.15);cursor:pointer;background:var(--surface);transition:transform .15s;}
+  .gallery-grid-item:hover{transform:scale(1.03);box-shadow:0 4px 16px rgba(0,0,0,.25);}
+  .gallery-grid-item img{width:100%;height:100%;object-fit:cover;display:block;pointer-events:none;}
   @media (hover: hover) {
     .attach-thumb:hover{filter:brightness(1.05);transform:scale(1.04);}
   }

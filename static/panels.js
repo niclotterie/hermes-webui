@@ -243,7 +243,7 @@ async function switchPanel(name, opts = {}) {
   // showing-<name> class on <main>; no class means chat (the default).
   const mainEl = document.querySelector('main.main');
   if (mainEl) {
-    ['settings','skills','memory','tasks','kanban','workspaces','profiles','insights','logs'].forEach(p => {
+    ['settings','skills','memory','tasks','kanban','workspaces','profiles','insights','logs','gallery'].forEach(p => {
       mainEl.classList.toggle('showing-' + p, nextPanel === p);
     });
   }
@@ -257,6 +257,7 @@ async function switchPanel(name, opts = {}) {
   if (nextPanel === 'todos') loadTodos();
   if (nextPanel === 'insights') await loadInsights();
   if (nextPanel === 'logs') await loadLogs();
+  if (nextPanel === 'gallery') await loadGallery();
   _syncLogsAutoRefresh();
   if (typeof _syncSystemHealthMonitorVisibility === 'function') _syncSystemHealthMonitorVisibility();
   if (nextPanel === 'settings') {
@@ -2916,6 +2917,44 @@ function _renderLogs(data) {
     const when = data && data.mtime ? new Date(data.mtime * 1000).toLocaleString() : t('logs_no_mtime');
     status.textContent = `${rawLines.length} / ${data.tail || _selectedLogsTail()} lines · ${bytes.toLocaleString()} bytes · ${when}`;
   }
+}
+
+// ── Gallery panel ──
+let _galleryList = null;
+
+async function loadGallery(force) {
+  const box = $('galleryPanel');
+  const refreshBtn = $('galleryRefreshBtn');
+  if (!box) return;
+  if (force && refreshBtn) {
+    refreshBtn.style.opacity = '0.5';
+    refreshBtn.disabled = true;
+  }
+  try {
+    const data = await api('/api/kira/gallery/images');
+    _galleryList = data.images || [];
+    _renderGallery();
+  } catch(e) {
+    _galleryList = null;
+    box.innerHTML = `<div style="padding:24px;color:var(--muted);font-size:12px">${esc(t('error_prefix') + e.message)}</div>`;
+  } finally {
+    if (force && refreshBtn) {
+      refreshBtn.style.opacity = '';
+      refreshBtn.disabled = false;
+    }
+  }
+}
+
+function _renderGallery() {
+  const box = $('galleryPanel');
+  if (!box) return;
+  if (!_galleryList || !_galleryList.length) {
+    box.innerHTML = `<div style="padding:24px;color:var(--muted);font-size:12px">${esc(t('gallery_no_images') || 'No images yet')}</div>`;
+    return;
+  }
+  box.innerHTML = _galleryList.map(url =>
+    `<div class="gallery-grid-item"><img src="${url}" loading="lazy" alt="Gallery image"></div>`
+  ).join('');
 }
 
 function _startLogsAutoRefresh() {
