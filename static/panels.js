@@ -2921,41 +2921,150 @@ function _renderLogs(data) {
 
 // ── Gallery panel ──
 let _galleryList = null;
+let _galleryFolders = [];
+let _currentGalleryFolder = null;
 
-async function loadGallery(force) {
-  const box = $('galleryPanel');
-  const refreshBtn = $('galleryRefreshBtn');
-  if (!box) return;
-  if (force && refreshBtn) {
-    refreshBtn.style.opacity = '0.5';
-    refreshBtn.disabled = true;
-  }
+async function loadGalleryFolders() {
   try {
-    const data = await api('/api/kira/gallery/images');
+    const data = await api('/api/kira/gallery/folders');
+    _galleryFolders = data.folders || [];
+    renderGalleryFolders();
+  } catch(e) {
+    console.error('Failed to load gallery folders:', e);
+  }
+}
+
+function renderGalleryFolders() {
+  const box = $('gallerySidebarList');
+  if (!box) return;
+  if (!_galleryFolders.length) {
+    box.innerHTML = `<div style="padding:12px;color:var(--muted);font-size:12px">${esc(t('gallery_no_folders') || 'No folders yet')}</div>`;
+    return;
+  }
+  box.innerHTML = _galleryFolders.map(f =>
+    `<button type="button" class="gallery-folder-btn ${f.name === _currentGalleryFolder ? 'active' : ''}" onclick="openGalleryFolder('${esc(f.name)}')">
+      <span class="gallery-folder-name">${esc(f.name)}</span>
+      <span class="gallery-folder-count">${f.count} img</span>
+    </button>`
+  ).join('');
+}
+
+function openGalleryFolder(folderName) {
+  _currentGalleryFolder = folderName;
+  renderGalleryFolders();
+  loadGalleryForFolder(folderName);
+}
+
+async function loadGalleryForFolder(folderName) {
+  const box = $('galleryMain');
+  if (!box) return;
+  try {
+    const params = folderName ? `?folder=${encodeURIComponent(folderName)}` : '';
+    const data = await api(`/api/kira/gallery/images${params}`);
     _galleryList = data.images || [];
     _renderGallery();
   } catch(e) {
     _galleryList = null;
     box.innerHTML = `<div style="padding:24px;color:var(--muted);font-size:12px">${esc(t('error_prefix') + e.message)}</div>`;
+  }
+}
+
+async function loadGallery(force, resetFolder) {
+  // Load folder list first (idempotent)
+  await loadGalleryFolders();
+
+  const btn = $('galleryRefreshBtn');
+  if (force && btn) { btn.style.opacity = '0.5'; btn.disabled = true; }
+
+  // If a folder is selected or reset requested, load that folder; otherwise load all
+  if (resetFolder) {
+    _currentGalleryFolder = null;
+    renderGalleryFolders();
+  }
+
+  try {
+    const params = _currentGalleryFolder ? `?folder=${encodeURIComponent(_currentGalleryFolder)}` : '';
+    const data = await api(`/api/kira/gallery/images${params}`);
+    _galleryList = data.images || [];
+    _renderGallery();
+  } catch(e) {
+    _galleryList = null;
+    const box = $('galleryMain');
+    if (box) box.innerHTML = `<div style="padding:24px;color:var(--muted);font-size:12px">${esc(t('error_prefix') + e.message)}</div>`;
   } finally {
-    if (force && refreshBtn) {
-      refreshBtn.style.opacity = '';
-      refreshBtn.disabled = false;
-    }
+    if (force && btn) { btn.style.opacity = ''; btn.disabled = false; }
   }
 }
 
 function _renderGallery() {
-  const box = $('galleryPanel');
+  const box = $('galleryMain');
   if (!box) return;
   if (!_galleryList || !_galleryList.length) {
     box.innerHTML = `<div style="padding:24px;color:var(--muted);font-size:12px">${esc(t('gallery_no_images') || 'No images yet')}</div>`;
     return;
   }
-  box.innerHTML = _galleryList.map(url =>
-    `<div class="gallery-grid-item"><img src="${url}" loading="lazy" alt="Gallery image"></div>`
+  box.innerHTML = _galleryList.map((url, i) =>
+    `<div class="gallery-grid-item" onclick="openLightbox('${url}', ${i})"><img src="${url}" loading="lazy" alt="Gallery image" draggable="false"></div>`
   ).join('');
 }
+
+// ── Lightbox ──
+let _lightboxIndex = -1;
+
+function openLightbox(url, index) {
+  _lightboxIndex = index;
+  const img = $('lightboxImage');
+  const cap = $('lightboxCaption');
+  const ov = $('lightboxOverlay');
+  if (img) img.src = url;
+  if (cap) cap.textContent = (index + 1) + ' / ' + _galleryList.length;
+  if (ov) ov.style.display = 'flex';
+  document.body.style.overflow = 'hidden';
+}
+
+function closeLightbox(e) {
+  // Only close if clicking the overlay background itself or the close button
+  if (e && e.target && e.target.id === 'lightboxContent') return;
+  if (e && e.target && e.target.classList && e.target.classList.contains('lightbox-nav')) e.stopPropagation();
+  // Close button has class lightbox-close
+  if (e && e.target && e.target.classList && e.target.classList.contains('lightbox-close')) {
+    // fall through to close
+  } else if (e && e.target !== $('lightboxOverlay')) {
+    return; // clicked inside content/nav, don't close from overlay click
+  }
+  const ov = $('lightboxOverlay');
+  if (ov) ov.style.display = 'none';
+  document.body.style.overflow = '';
+}
+
+function prevImage(e) {
+  e && e.stopPropagation();
+  if (!_galleryList || !_galleryList.length) return;
+  _lightboxIndex = (_lightboxIndex - 1 + _galleryList.length) % _galleryList.length;
+  const img = $('lightboxImage');
+  const cap = $('lightboxCaption');
+  if (img) img.src = _galleryList[_lightboxIndex];
+  if (cap) cap.textContent = (_lightboxIndex + 1) + ' / ' + _galleryList.length;
+}
+
+function nextImage(e) {
+  e && e.stopPropagation();
+  if (!_galleryList || !_galleryList.length) return;
+  _lightboxIndex = (_lightboxIndex + 1) % _galleryList.length;
+  const img = $('lightboxImage');
+  const cap = $('lightboxCaption');
+  if (img) img.src = _galleryList[_lightboxIndex];
+  if (cap) cap.textContent = (_lightboxIndex + 1) + ' / ' + _galleryList.length;
+}
+
+// Keyboard navigation for lightbox
+document.addEventListener('keydown', function(e) {
+  const ov = $('lightboxOverlay');
+  if (!ov || ov.style.display !== 'flex') return;
+  if (e.key === 'Escape') { closeLightbox(); }
+  else if (e.key === 'ArrowLeft') { prevImage(); }
+  else if (e.key === 'ArrowRight') { nextImage(); }
+});
 
 function _startLogsAutoRefresh() {
   if (_logsAutoRefreshTimer) return;

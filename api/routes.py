@@ -3445,15 +3445,23 @@ def _serve_manifest(handler) -> bool:
 
 
 def _serve_image(handler, source_dir, filename):
-    """Serve a single image file from source_dir with path-traversal protection."""
+    """Serve a single image file from source_dir with path-traversal protection.
+
+    filename may include a relative subfolder (e.g. '24-05-2026/image.png').
+    The resolved path is checked to stay inside source_dir.
+    """
     import os
     import mimetypes
-    safe_filename = os.path.basename(filename)
-    if safe_filename != filename:
+    # Sanity: reject obvious traversal attempts
+    if ".." in filename or filename.startswith("/"):
         return j(handler, {"error": "Invalid filename"}, status=400)
-    target_file = source_dir / safe_filename
+    # Resolve relative to source_dir and confirm we stay inside
+    target_file = (source_dir / filename).resolve()
+    if not str(target_file).startswith(str(source_dir.resolve())):
+        return j(handler, {"error": "Invalid filename"}, status=400)
     if not target_file.exists() or not target_file.is_file():
         return j(handler, {"error": "Image not found"}, status=404)
+    safe_filename = os.path.basename(filename)
     mime_type, _ = mimetypes.guess_type(str(target_file))
     if mime_type is None:
         mime_type = "application/octet-stream"
@@ -3526,7 +3534,50 @@ def _handle_gallery(handler, parsed):
 
 
 def _handle_kira_gallery_images(handler, parsed):
-    """Serve gallery images list for the Kira gallery page."""
+    """Serve gallery images list for the Kira gallery page. Supports ?folder=dd-mm-YYYY."""
+    from api.auth import is_auth_enabled, parse_cookie, verify_session
+    if is_auth_enabled():
+        cv = parse_cookie(handler)
+        if not (cv and verify_session(cv)):
+            handler.send_response(401)
+            handler.send_header("Content-Type", "application/json")
+            handler.end_headers()
+            handler.wfile.write(b'{"error":"Authentication required"}')
+            return
+
+    from pathlib import Path
+    from urllib.parse import parse_qs
+    qs = parse_qs(parsed.query)
+    folder = qs.get("folder", [None])[0]
+    source_dir = _gallery_source_dir()
+    if source_dir is None:
+        return j(handler, {"error": "Gallery directory not found"}, status=404)
+
+    image_urls = []
+    if folder:
+        # Serve images from a specific date subfolder
+        subfolder = source_dir / folder
+        if subfolder.is_dir():
+            for ext in ["*.png", "*.jpg", "*.jpeg", "*.webp"]:
+                for img_file in subfolder.glob(ext):
+                    rel = img_file.relative_to(source_dir)
+                    image_urls.append(f"/api/gallery?filename={rel}")
+    else:
+        # Serve all images (root-level and all subfolders) preserving folder prefix
+        for ext in ["*.png", "*.jpg", "*.jpeg", "*.webp"]:
+            for img_file in source_dir.rglob(ext):
+                rel = img_file.relative_to(source_dir)
+                image_urls.append(f"/api/gallery?filename={rel}")
+
+    image_urls.sort()
+    return j(handler, {
+        "images": image_urls,
+        "count": len(image_urls)
+    })
+
+
+def _handle_gallery_folders(handler, parsed):
+    """Return a list of date folders in the gallery source dir with image counts."""
     from api.auth import is_auth_enabled, parse_cookie, verify_session
     if is_auth_enabled():
         cv = parse_cookie(handler)
@@ -3542,15 +3593,17 @@ def _handle_kira_gallery_images(handler, parsed):
     if source_dir is None:
         return j(handler, {"error": "Gallery directory not found"}, status=404)
 
-    image_urls = []
-    for ext in ["*.png", "*.jpg", "*.jpeg", "*.webp"]:
-        for img_file in source_dir.glob(ext):
-            image_urls.append(f"/api/gallery?filename={img_file.name}")
-
-    return j(handler, {
-        "images": image_urls,
-        "count": len(image_urls)
-    })
+    folders = []
+    for subdir in sorted(source_dir.iterdir(), key=lambda p: p.stat().st_mtime, reverse=True):
+        if subdir.is_dir():
+            count = sum(1 for ext in ["*.png", "*.jpg", "*.jpeg", "*.webp"] for _ in subdir.glob(ext))
+            if count > 0:
+                folders.append({
+                    "name": subdir.name,
+                    "count": count,
+                    "modified": subdir.stat().st_mtime
+                })
+    return j(handler, {"folders": folders})
 
 
 def handle_get(handler, parsed) -> bool:
@@ -3782,6 +3835,8 @@ def handle_get(handler, parsed) -> bool:
         return _handle_gallery(handler, parsed)
     if parsed.path == "/api/kira/gallery/images":
         return _handle_kira_gallery_images(handler, parsed)
+    if parsed.path == "/api/kira/gallery/folders":
+        return _handle_gallery_folders(handler, parsed)
 
     if parsed.path == "/api/reasoning":
         # Current reasoning config (shared source of truth with the CLI —

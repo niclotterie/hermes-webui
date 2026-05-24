@@ -628,6 +628,8 @@ const LOCALES = {
     kanban_no_runs: 'No runs',
     kanban_title: 'Title',
     gallery_no_images: 'No images in the gallery yet',
+    gallery_no_folders: 'No folders yet — renders will auto-organize by date',
+    gallery_folders_title: 'Dates',
     kanban_description: 'Description',
     kanban_description_placeholder: 'Optional — what needs to happen, acceptance criteria, links',
     kanban_status: 'Status',

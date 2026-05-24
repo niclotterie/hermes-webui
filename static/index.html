@@ -343,9 +343,30 @@
           <button class="panel-head-btn has-tooltip has-tooltip--bottom" id="galleryRefreshBtn" onclick="loadGallery(true)" data-tooltip="Refresh" aria-label="Refresh"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg></button>
         </div>
       </div>
-      <div id="galleryPanel" class="gallery-grid">
-        <div style="padding:24px;color:var(--muted);font-size:12px" data-i18n="loading">Loading...</div>
+      <div id="galleryPanel" class="gallery-panel">
+        <div class="gallery-sidebar" id="gallerySidebar">
+          <div class="gallery-sidebar-header">
+            <span data-i18n="gallery_folders_title">Dates</span>
+            <button class="panel-head-btn has-tooltip has-tooltip--bottom" id="galleryResetBtn" onclick="loadGallery(false, true)" data-tooltip="Show all" aria-label="Show all" style="padding:2px 6px;font-size:11px;">✕</button>
+          </div>
+          <div class="gallery-sidebar-list" id="gallerySidebarList">
+            <div style="padding:12px;color:var(--muted);font-size:12px" data-i18n="loading">Loading...</div>
+          </div>
+        </div>
+        <div class="gallery-main" id="galleryMain">
+          <div style="padding:24px;color:var(--muted);font-size:12px" data-i18n="loading">Loading...</div>
+        </div>
       </div>
+    </div>
+    <!-- Gallery lightbox overlay -->
+    <div class="lightbox-overlay" id="lightboxOverlay" onclick="closeLightbox(event)">
+      <button class="lightbox-close" onclick="closeLightbox(event)" aria-label="Close lightbox">&times;</button>
+      <button class="lightbox-nav lightbox-prev" onclick="prevImage(event)" aria-label="Previous image">&#10094;</button>
+      <button class="lightbox-nav lightbox-next" onclick="nextImage(event)" aria-label="Next image">&#10095;</button>
+      <div class="lightbox-content" id="lightboxContent" onclick="event.stopPropagation()">
+        <img id="lightboxImage" src="" alt="Enlarged gallery image">
+      </div>
+      <div class="lightbox-caption" id="lightboxCaption"></div>
     </div>
 <!-- Settings panel (menu list; actual panes render in .main) -->
     <div class="panel-view" id="panelSettings">
